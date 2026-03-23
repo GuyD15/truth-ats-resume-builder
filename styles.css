@@ -279,22 +279,50 @@ button:focus-visible {
 }
 
 .suggestion-item {
-  display: flex;
-  gap: 0.65rem;
-  align-items: flex-start;
+  display: grid;
+  gap: 0.5rem;
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 0.62rem;
   background: #fdfaf3;
 }
 
-.suggestion-item input[type="checkbox"] {
-  margin-top: 0.22rem;
+.suggestion-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
 }
 
 .suggestion-text {
   margin: 0;
   line-height: 1.4;
+}
+
+.suggestion-draft {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  background: #fff;
+  border: 1px dashed #d8d1c4;
+  border-radius: 10px;
+  padding: 0.55rem;
+  white-space: pre-wrap;
+}
+
+.btn-add-bullet {
+  border: 1px solid #c7b58f;
+  background: #fff3d7;
+  color: #6a4900;
+  border-radius: 999px;
+  padding: 0.35rem 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-add-bullet:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .output {

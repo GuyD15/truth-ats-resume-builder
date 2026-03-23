@@ -84,12 +84,27 @@
             type="url"
             placeholder="https://company.com/jobs/your-current-role"
           />
+          <div class="grid-two" style="margin-top:0.6rem;">
+            <div>
+              <label for="currentRoleTitle">Current Role Title (optional)</label>
+              <input
+                id="currentRoleTitle"
+                type="text"
+                placeholder="Retention Specialist"
+              />
+            </div>
+            <div>
+              <label for="currentRoleStart">Current Role Start Date</label>
+              <input id="currentRoleStart" type="month" />
+            </div>
+          </div>
           <label for="currentRoleListing" style="margin-top:0.6rem;display:block;">Or paste current role description manually</label>
           <textarea
             id="currentRoleListing"
             rows="4"
             placeholder="Paste a job listing similar to what you currently do. The app will create latest-role update prompts without inventing facts."
           ></textarea>
+          <p id="currentRoleTenure" class="hint">Tenure context will be used in draft bullet suggestions.</p>
         </div>
 
         <div class="actions">
@@ -144,12 +159,9 @@
         </article>
 
         <article class="result-card draft-card">
-          <h3>Truthful Suggestions (Approve/Reject)</h3>
-          <p class="hint">Review each suggested improvement and apply only the ones that are true for your real work.</p>
+          <h3>One-Click Truthful Bullet Suggestions</h3>
+          <p class="hint">Each suggestion includes a concrete draft bullet. Click Add Bullet for any item that is true, then edit details.</p>
           <div id="suggestionsList" class="suggestions-list"></div>
-          <div class="actions draft-actions">
-            <button id="applySuggestionsBtn" class="btn btn-secondary" disabled>Apply Selected Suggestions To Draft</button>
-          </div>
         </article>
       </section>
     </main>

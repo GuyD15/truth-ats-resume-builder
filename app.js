@@ -9,6 +9,9 @@ const els = {
   jobTitle: document.getElementById("jobTitle"),
   jobPaste: document.getElementById("jobPaste"),
   currentRoleUrl: document.getElementById("currentRoleUrl"),
+  currentRoleTitle: document.getElementById("currentRoleTitle"),
+  currentRoleStart: document.getElementById("currentRoleStart"),
+  currentRoleTenure: document.getElementById("currentRoleTenure"),
   currentRoleListing: document.getElementById("currentRoleListing"),
   latestRoleDraft: document.getElementById("latestRoleDraft"),
   suggestionsList: document.getElementById("suggestionsList"),
@@ -217,6 +220,39 @@ const TITLE_KEYWORDS = {
   ],
 };
 
+const ROLE_RESPONSIBILITY_LIBRARY = {
+  retention: [
+    "reduced churn and improved customer retention",
+    "handled escalations and account-risk conversations",
+    "used objection handling to save at-risk accounts",
+    "documented root causes and follow-up actions in CRM",
+  ],
+  customer_service: [
+    "resolved high-volume customer inquiries across channels",
+    "improved first-contact resolution",
+    "de-escalated complex complaints",
+    "partnered with operations to close recurring issues",
+  ],
+  sales: [
+    "managed pipeline and follow-up cadence",
+    "qualified leads and advanced opportunities",
+    "improved conversion through discovery and objection handling",
+    "maintained CRM hygiene and reporting accuracy",
+  ],
+  operations: [
+    "improved process consistency and handoffs",
+    "created SOP updates based on recurring defects",
+    "tracked KPI trends and action items",
+    "coordinated cross-team issue resolution",
+  ],
+  manager: [
+    "coached team members on performance and quality",
+    "managed queue/coverage planning",
+    "standardized workflows and accountability",
+    "reported performance trends to leadership",
+  ],
+};
+
 for (const radio of document.querySelectorAll('input[name="jobMode"]')) {
   radio.addEventListener("change", handleModeChange);
 }
@@ -225,8 +261,8 @@ els.analyzeBtn.addEventListener("click", onAnalyze);
 if (els.loadDraftBtn) {
   els.loadDraftBtn.addEventListener("click", onLoadDraftTemplate);
 }
-if (els.applySuggestionsBtn) {
-  els.applySuggestionsBtn.addEventListener("click", onApplySelectedSuggestions);
+if (els.suggestionsList) {
+  els.suggestionsList.addEventListener("click", onSuggestionListClick);
 }
 els.downloadBtn.addEventListener("click", onDownloadTxt);
 els.downloadDocxBtn.addEventListener("click", onDownloadDocx);
@@ -271,10 +307,13 @@ async function onAnalyze() {
     setStatus(jobDetails.fetchWarning
       ? `Note: ${jobDetails.fetchWarning} — tailoring now...`
       : "Tailoring resume using only existing facts...");
+
+    const currentRoleMeta = buildCurrentRoleMeta(currentRoleListingText);
     const result = tailorResumeTruthfully(
       resumeText,
       jobDetails,
-      currentRoleListingText
+      currentRoleListingText,
+      currentRoleMeta
     );
 
     renderResult(result);
@@ -285,9 +324,6 @@ async function onAnalyze() {
       els.loadDraftBtn.disabled = !lastLatestRoleDraftTemplate;
     }
     renderSuggestions(lastSuggestions);
-    if (els.applySuggestionsBtn) {
-      els.applySuggestionsBtn.disabled = !lastSuggestions.length;
-    }
     els.downloadBtn.disabled = false;
     els.downloadDocxBtn.disabled = false;
     els.downloadPdfBtn.disabled = false;
@@ -546,7 +582,7 @@ function isLowSignalJobText(text) {
   return noisyLines.length >= Math.max(2, Math.floor(lines.length * 0.25));
 }
 
-function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "") {
+function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "", currentRoleMeta = {}) {
   const normalizedResume = normalizeResumeStructure(sanitizeText(resumeText));
   const sections = splitSections(normalizedResume);
 
@@ -580,7 +616,8 @@ function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "")
     matchedKeywords,
     missingKeywords,
     jobDetails,
-    currentRoleListing
+    currentRoleListing,
+    currentRoleMeta
   );
 
   const parts = [];
@@ -644,7 +681,14 @@ function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "")
   };
 }
 
-function buildTruthfulSuggestions(sections, matchedKeywords, missingKeywords, jobDetails, currentRoleListing) {
+function buildTruthfulSuggestions(
+  sections,
+  matchedKeywords,
+  missingKeywords,
+  jobDetails,
+  currentRoleListing,
+  currentRoleMeta = {}
+) {
   const suggestions = [];
   const blockedTerms = extractBlockedTerms(jobDetails);
   const focusMissing = missingKeywords
@@ -662,6 +706,16 @@ function buildTruthfulSuggestions(sections, matchedKeywords, missingKeywords, jo
     ...(sections.experience || []).slice(0, 14),
     ...(sections.skills || []).slice(0, 10),
   ].join(" ").toLowerCase();
+
+  const tenureText = currentRoleMeta.tenureText || "your current tenure";
+  const inferredResponsibilities = inferResponsibilitiesFromRoleTitle(currentRoleMeta.roleTitle || "");
+
+  for (const responsibility of inferredResponsibilities.slice(0, 4)) {
+    suggestions.push({
+      label: `Add responsibility-backed bullet (${currentRoleMeta.roleTitle || "current role"}).`,
+      draft: `- Over ${tenureText}, ${responsibility}, resulting in [truthful KPI change].`,
+    });
+  }
 
   for (const keyword of focusMissing) {
     const draft = buildDraftBulletForKeyword(keyword, listingKeywords, lineBank);
@@ -700,6 +754,116 @@ function buildTruthfulSuggestions(sections, matchedKeywords, missingKeywords, jo
   }
 
   return unique.slice(0, 12);
+}
+
+function buildCurrentRoleMeta(currentRoleListingText) {
+  const providedTitle = String(els.currentRoleTitle?.value || "").trim();
+  const url = String(els.currentRoleUrl?.value || "").trim();
+  const inferredTitle = providedTitle || inferRoleTitleFromUrl(url) || inferRoleTitleFromListing(currentRoleListingText);
+  const startMonth = String(els.currentRoleStart?.value || "").trim();
+  const tenureText = computeTenureLabel(startMonth);
+
+  if (els.currentRoleTenure) {
+    const titlePart = inferredTitle ? `${inferredTitle}` : "Current role";
+    const tenurePart = tenureText ? ` | Tenure: ${tenureText}` : "";
+    els.currentRoleTenure.textContent = `${titlePart}${tenurePart}`;
+  }
+
+  return {
+    roleTitle: inferredTitle,
+    startMonth,
+    tenureText,
+  };
+}
+
+function inferRoleTitleFromUrl(url) {
+  if (!looksLikeUrl(url)) {
+    return "";
+  }
+  try {
+    const parsed = new URL(normalizeUrl(url));
+    const parts = parsed.pathname
+      .split("/")
+      .filter(Boolean)
+      .map((s) => s.replace(/[-_]+/g, " ").trim())
+      .filter(Boolean)
+      .filter((s) => !/^\d+$/.test(s))
+      .filter((s) => !/^(job|jobs|careers|career|details|detail|apply)$/i.test(s));
+
+    for (let i = parts.length - 1; i >= 0; i -= 1) {
+      const p = parts[i];
+      if (p.length >= 4 && !/[0-9]{4,}/.test(p)) {
+        return toTitleCase(p);
+      }
+    }
+  } catch {
+    // ignore parsing errors
+  }
+  return "";
+}
+
+function inferRoleTitleFromListing(text) {
+  const lines = String(text || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, 10);
+
+  for (const line of lines) {
+    if (/specialist|manager|representative|advisor|analyst|coordinator|associate|officer|agent/i.test(line)) {
+      return toTitleCase(line.replace(/[|:].*$/, "").trim());
+    }
+  }
+  return "";
+}
+
+function inferResponsibilitiesFromRoleTitle(title) {
+  const t = String(title || "").toLowerCase();
+  const out = [];
+
+  if (/retention|save|churn/.test(t)) out.push(...ROLE_RESPONSIBILITY_LIBRARY.retention);
+  if (/customer|support|service|success/.test(t)) out.push(...ROLE_RESPONSIBILITY_LIBRARY.customer_service);
+  if (/sales|account executive|bdr|sdr/.test(t)) out.push(...ROLE_RESPONSIBILITY_LIBRARY.sales);
+  if (/ops|operations|specialist|coordinator/.test(t)) out.push(...ROLE_RESPONSIBILITY_LIBRARY.operations);
+  if (/manager|lead|supervisor/.test(t)) out.push(...ROLE_RESPONSIBILITY_LIBRARY.manager);
+
+  if (!out.length) {
+    out.push(
+      "handled core day-to-day responsibilities for the role",
+      "improved process quality and customer outcomes",
+      "collaborated with cross-functional teams to resolve issues"
+    );
+  }
+
+  return [...new Set(out)].slice(0, 6);
+}
+
+function computeTenureLabel(startMonth) {
+  if (!startMonth) {
+    return "";
+  }
+  const m = /^(\d{4})-(\d{2})$/.exec(startMonth);
+  if (!m) {
+    return "";
+  }
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const start = new Date(y, mo - 1, 1);
+  const now = new Date();
+  const months = Math.max(0, (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()));
+  const yrs = Math.floor(months / 12);
+  const rem = months % 12;
+  if (yrs && rem) return `${yrs}y ${rem}m`;
+  if (yrs) return `${yrs}y`;
+  return `${rem}m`;
+}
+
+function toTitleCase(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildDraftBulletForKeyword(keyword, listingKeywords, lineBank) {
@@ -1033,73 +1197,89 @@ function renderSuggestions(suggestions) {
   }
 
   suggestions.forEach((item, index) => {
-    const row = document.createElement("label");
+    const row = document.createElement("article");
     row.className = "suggestion-item";
 
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = true;
-    checkbox.dataset.suggestionIndex = String(index);
+    const header = document.createElement("div");
+    header.className = "suggestion-item-header";
 
     const content = document.createElement("p");
     content.className = "suggestion-text";
     const labelText = typeof item === "string" ? item : item.label;
     const draftText = typeof item === "string" ? item : item.draft;
-    content.textContent = `${labelText}\nDraft: ${draftText}`;
+    content.textContent = labelText;
 
-    row.append(checkbox, content);
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "btn-add-bullet";
+    addBtn.dataset.suggestionIndex = String(index);
+    addBtn.textContent = "Add Bullet";
+
+    const draft = document.createElement("p");
+    draft.className = "suggestion-draft";
+    draft.textContent = draftText || "";
+
+    header.append(content, addBtn);
+    row.append(header, draft);
     els.suggestionsList.append(row);
   });
 }
 
-function onApplySelectedSuggestions() {
-  if (!lastSuggestions.length || !els.suggestionsList || !els.latestRoleDraft) {
+function onSuggestionListClick(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  if (!target.classList.contains("btn-add-bullet")) {
     return;
   }
 
-  const selectedDrafts = [];
-  const checkboxes = els.suggestionsList.querySelectorAll('input[type="checkbox"]');
-  checkboxes.forEach((box) => {
-    if (!box.checked) {
-      return;
-    }
-    const idx = Number(box.dataset.suggestionIndex);
-    if (!Number.isInteger(idx) || !lastSuggestions[idx]) {
-      return;
-    }
-    const item = lastSuggestions[idx];
-    const draft = typeof item === "string" ? item : item.draft;
-    if (draft) {
-      selectedDrafts.push(draft.startsWith("-") ? draft : `- ${draft}`);
-    }
-  });
-
-  if (!selectedDrafts.length) {
-    setStatus("Select at least one truthful suggestion to apply.");
+  const idx = Number(target.dataset.suggestionIndex);
+  if (!Number.isInteger(idx) || !lastSuggestions[idx]) {
     return;
   }
 
+  const item = lastSuggestions[idx];
+  const draft = typeof item === "string" ? item : item.draft;
+  if (!draft) {
+    return;
+  }
+
+  const inserted = appendDraftBullet(draft);
+  if (!inserted) {
+    setStatus("That bullet is already in your draft.");
+    target.setAttribute("disabled", "true");
+    target.textContent = "Added";
+    return;
+  }
+
+  target.setAttribute("disabled", "true");
+  target.textContent = "Added";
+  setStatus("Added 1 bullet to Latest Role Draft. Edit details so it stays truthful.");
+}
+
+function appendDraftBullet(draftText) {
+  if (!els.latestRoleDraft) {
+    return false;
+  }
+  const normalizedDraft = draftText.startsWith("-") ? draftText : `- ${draftText}`;
   const existing = sanitizeText(els.latestRoleDraft.value || "");
-
   const existingLines = existing
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const existingSet = new Set(existingLines.map((line) => line.toLowerCase()));
-  const uniqueNew = selectedDrafts.filter((line) => !existingSet.has(line.toLowerCase()));
-
-  if (!uniqueNew.length) {
-    setStatus("Those selected suggestions are already in your draft.");
-    return;
+  const exists = existingLines.some((line) => line.toLowerCase() === normalizedDraft.toLowerCase());
+  if (exists) {
+    return false;
   }
 
   const blockHeader = "APPROVED TRUTHFUL DRAFT BULLETS";
   const hasHeader = existingLines.some((line) => line.toLowerCase() === blockHeader.toLowerCase());
-  const block = `${hasHeader ? "" : `${blockHeader}\n`}${uniqueNew.join("\n")}`.trim();
+  const block = `${hasHeader ? "" : `${blockHeader}\n`}${normalizedDraft}`.trim();
 
   els.latestRoleDraft.value = existing ? `${existing}\n${block}` : block;
-  setStatus(`Applied ${uniqueNew.length} new draft bullet suggestion(s). Keep only what is true.`);
+  return true;
 }
 
 function onDownloadTxt() {
