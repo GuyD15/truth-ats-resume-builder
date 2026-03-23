@@ -238,7 +238,10 @@ async function onAnalyze() {
     setStatus("Reading current role listing context...");
     const currentRoleListingText = await getCurrentRoleListingText();
 
-    setStatus("Tailoring resume using only existing facts...");
+    setStatus(jobDetails.fetchWarning
+      ? `Note: ${jobDetails.fetchWarning} — tailoring now...`
+      : "Tailoring resume using only existing facts...");
+
     const result = tailorResumeTruthfully(
       resumeText,
       jobDetails,
@@ -252,7 +255,9 @@ async function onAnalyze() {
     els.downloadBtn.disabled = false;
     els.downloadDocxBtn.disabled = false;
     els.downloadPdfBtn.disabled = false;
-    setStatus("Tailoring complete.");
+    setStatus(jobDetails.fetchWarning
+      ? `Tailoring complete. Note: ${jobDetails.fetchWarning}`
+      : "Tailoring complete.");
   } catch (error) {
     setStatus(error.message || "Something went wrong.");
   }
@@ -311,6 +316,7 @@ async function getJobTargetText() {
   const pasted = (els.jobPaste.value || "").trim();
   let fetchedText = "";
   let sourceLabel = "";
+  let fetchWarning = "";
 
   if (mode === "url") {
     const url = (els.jobUrl.value || "").trim();
@@ -318,10 +324,9 @@ async function getJobTargetText() {
       sourceLabel = url;
       try {
         fetchedText = await fetchJobTextByUrl(url);
-      } catch (error) {
-        if (!pasted) {
-          throw error;
-        }
+      } catch {
+        fetchedText = extractKeywordsFromUrl(url);
+        fetchWarning = "Job URL could not be fetched (site may block scrapers). Using URL path keywords only. Paste the job description above for accurate results.";
       }
     }
   } else {
@@ -331,10 +336,9 @@ async function getJobTargetText() {
       if (looksLikeUrl(title)) {
         try {
           fetchedText = await fetchJobTextByUrl(title);
-        } catch (error) {
-          if (!pasted) {
-            throw error;
-          }
+        } catch {
+          fetchedText = extractKeywordsFromUrl(title);
+          fetchWarning = "Job URL could not be fetched (site may block scrapers). Paste the job description for accurate results.";
         }
       } else {
         fetchedText = buildSyntheticTextFromTitle(title);
@@ -343,7 +347,7 @@ async function getJobTargetText() {
   }
 
   const combinedText = [fetchedText, pasted].filter(Boolean).join("\n\n");
-  return { mode, sourceLabel, fetchedText, pastedText: pasted, combinedText };
+  return { mode, sourceLabel, fetchedText, pastedText: pasted, combinedText, fetchWarning };
 }
 
 async function getCurrentRoleListingText() {
@@ -386,23 +390,37 @@ async function fetchJobTextByUrl(url) {
     // Fall back to direct fetch.
   }
 
-  const directRes = await fetch(normalized, { mode: "cors" });
-  if (!directRes.ok) {
-    throw new Error("Could not read the job URL. Paste the description manually.");
+  try {
+    const directRes = await fetch(normalized, { mode: "cors" });
+    if (!directRes.ok) {
+      throw new Error("Could not read the job URL.");
+    }
+
+    const html = await directRes.text();
+    const cleaned = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ");
+
+    const cleanedText = cleanFetchedJobText(sanitizeText(cleaned));
+    if (!isLowSignalJobText(cleanedText)) {
+      return cleanedText;
+    }
+  } catch {
+    // Direct fetch also failed (CORS or network error).
   }
 
-  const html = await directRes.text();
-  const cleaned = html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ");
+  throw new Error("Job page blocked or unreachable.");
+}
 
-  const cleanedText = cleanFetchedJobText(sanitizeText(cleaned));
-  if (isLowSignalJobText(cleanedText)) {
-    throw new Error("Job page content appears blocked or low quality. Paste the job description text for accurate ATS scoring.");
+function extractKeywordsFromUrl(url) {
+  try {
+    const { pathname, hostname } = new URL(normalizeUrl(url));
+    const raw = `${hostname} ${pathname}`.replace(/[-_/+.]/g, " ");
+    return raw.replace(/[^a-z0-9 ]/gi, " ").replace(/\s{2,}/g, " ").trim();
+  } catch {
+    return "";
   }
-
-  return cleanedText;
 }
 
 function buildSyntheticTextFromTitle(title) {
