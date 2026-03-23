@@ -11,8 +11,10 @@ const els = {
   currentRoleUrl: document.getElementById("currentRoleUrl"),
   currentRoleListing: document.getElementById("currentRoleListing"),
   latestRoleDraft: document.getElementById("latestRoleDraft"),
+  suggestionsList: document.getElementById("suggestionsList"),
   analyzeBtn: document.getElementById("analyzeBtn"),
   loadDraftBtn: document.getElementById("loadDraftBtn"),
+  applySuggestionsBtn: document.getElementById("applySuggestionsBtn"),
   downloadBtn: document.getElementById("downloadBtn"),
   downloadDocxBtn: document.getElementById("downloadDocxBtn"),
   downloadPdfBtn: document.getElementById("downloadPdfBtn"),
@@ -27,6 +29,7 @@ const els = {
 
 let lastOutputText = "";
 let lastLatestRoleDraftTemplate = "";
+let lastSuggestions = [];
 
 const STOPWORDS = new Set([
   "a",
@@ -202,6 +205,7 @@ for (const radio of document.querySelectorAll('input[name="jobMode"]')) {
 
 els.analyzeBtn.addEventListener("click", onAnalyze);
 els.loadDraftBtn.addEventListener("click", onLoadDraftTemplate);
+els.applySuggestionsBtn.addEventListener("click", onApplySelectedSuggestions);
 els.downloadBtn.addEventListener("click", onDownloadTxt);
 els.downloadDocxBtn.addEventListener("click", onDownloadDocx);
 els.downloadPdfBtn.addEventListener("click", onDownloadPdf);
@@ -238,10 +242,13 @@ async function onAnalyze() {
     setStatus("Reading current role listing context...");
     const currentRoleListingText = await getCurrentRoleListingText();
 
+    if (jobDetails.fetchWarning) {
+      setStatus(jobDetails.fetchWarning);
+    }
+
     setStatus(jobDetails.fetchWarning
       ? `Note: ${jobDetails.fetchWarning} — tailoring now...`
       : "Tailoring resume using only existing facts...");
-
     const result = tailorResumeTruthfully(
       resumeText,
       jobDetails,
@@ -251,13 +258,14 @@ async function onAnalyze() {
     renderResult(result);
     lastOutputText = result.tailoredText;
     lastLatestRoleDraftTemplate = result.latestRoleDraftTemplate || "";
+    lastSuggestions = result.suggestions || [];
     els.loadDraftBtn.disabled = !lastLatestRoleDraftTemplate;
+    renderSuggestions(lastSuggestions);
+    els.applySuggestionsBtn.disabled = !lastSuggestions.length;
     els.downloadBtn.disabled = false;
     els.downloadDocxBtn.disabled = false;
     els.downloadPdfBtn.disabled = false;
-    setStatus(jobDetails.fetchWarning
-      ? `Tailoring complete. Note: ${jobDetails.fetchWarning}`
-      : "Tailoring complete.");
+    setStatus("Tailoring complete.");
   } catch (error) {
     setStatus(error.message || "Something went wrong.");
   }
@@ -325,6 +333,7 @@ async function getJobTargetText() {
       try {
         fetchedText = await fetchJobTextByUrl(url);
       } catch {
+        // Site blocked scraping — extract keywords from URL path as minimal fallback
         fetchedText = extractKeywordsFromUrl(url);
         fetchWarning = "Job URL could not be fetched (site may block scrapers). Using URL path keywords only. Paste the job description above for accurate results.";
       }
@@ -410,7 +419,7 @@ async function fetchJobTextByUrl(url) {
     // Direct fetch also failed (CORS or network error).
   }
 
-  throw new Error("Job page blocked or unreachable.");
+  throw new Error("Job page blocked or unreachable. Paste the job description text for accurate ATS scoring.");
 }
 
 function extractKeywordsFromUrl(url) {
@@ -458,7 +467,7 @@ function looksLikeUrl(value) {
 
 function normalizeResumeStructure(text) {
   return text
-    .replace(/\u2022/g, "\n\u2022 ")
+    .replace(/•/g, "\n• ")
     .replace(/\b(PROFESSIONAL SUMMARY|SUMMARY|EXPERIENCE|WORK EXPERIENCE|EMPLOYMENT HISTORY|SKILLS|TECHNICAL SKILLS|CORE COMPETENCIES|EDUCATION|PROJECTS|CERTIFICATIONS)\b/gi, "\n$1\n")
     .replace(/\s+\|\s+/g, " | ")
     .replace(/\n{3,}/g, "\n\n")
@@ -537,6 +546,7 @@ function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "")
   const projectsText = sections.projects?.join("\n") || "";
   const latestRoleUpdateText = buildLatestRoleUpdateSection(sections, currentRoleListing);
   const latestRoleDraftTemplate = buildLatestRoleDraftTemplate(sections, currentRoleListing);
+  const suggestions = buildTruthfulSuggestions(sections, matchedKeywords, missingKeywords);
 
   const parts = [];
   parts.push("TAILORED RESUME (TRUTH-FIRST)");
@@ -594,8 +604,38 @@ function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "")
     matchedKeywords,
     missingKeywords: missingKeywords.slice(0, 20),
     latestRoleDraftTemplate,
+    suggestions,
     tailoredText: parts.join("\n").trim(),
   };
+}
+
+function buildTruthfulSuggestions(sections, matchedKeywords, missingKeywords) {
+  const suggestions = [];
+  const focusMissing = missingKeywords.slice(0, 6);
+  const focusMatched = matchedKeywords.slice(0, 4);
+
+  for (const word of focusMissing) {
+    suggestions.push(
+      `If true for your work, add a bullet that explicitly includes "${word}" with action + tool + measurable outcome.`
+    );
+  }
+
+  for (const word of focusMatched) {
+    suggestions.push(
+      `Strengthen an existing bullet containing "${word}" by adding scope (volume/timeframe) and an outcome metric.`
+    );
+  }
+
+  const exp = sections.experience || [];
+  const hasNumbers = exp.some((line) => /\d/.test(line));
+  if (!hasNumbers) {
+    suggestions.push("Add measurable outcomes where truthful (%, $, count, time saved) to improve ATS and recruiter scan quality.");
+  }
+
+  suggestions.push("Use exact wording from the target role for skills you truly used (for example, keep both CRM and Salesforce if accurate).");
+  suggestions.push("Keep only true claims: reject any suggestion that does not match your real responsibilities.");
+
+  return [...new Set(suggestions)].slice(0, 12);
 }
 
 function splitSections(text) {
@@ -791,8 +831,8 @@ function buildLatestRoleDraftTemplate(sections, currentRoleListing) {
 }
 
 function splitPotentialBullets(line) {
-  if (/^[\-*\u2022]/.test(line)) {
-    return [line.replace(/^[\-*\u2022]\s*/, "")];
+  if (/^[\-*•]/.test(line)) {
+    return [line.replace(/^[\-*•]\s*/, "")];
   }
 
   if (line.includes(";")) {
@@ -852,6 +892,66 @@ function renderResult(result) {
     li.textContent = word;
     els.missingList.append(li);
   }
+}
+
+function renderSuggestions(suggestions) {
+  if (!els.suggestionsList) {
+    return;
+  }
+
+  els.suggestionsList.innerHTML = "";
+  if (!suggestions.length) {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "No suggestions yet. Run Tailor Resume first.";
+    els.suggestionsList.append(p);
+    return;
+  }
+
+  suggestions.forEach((text, index) => {
+    const row = document.createElement("label");
+    row.className = "suggestion-item";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = true;
+    checkbox.dataset.suggestionIndex = String(index);
+
+    const content = document.createElement("p");
+    content.className = "suggestion-text";
+    content.textContent = text;
+
+    row.append(checkbox, content);
+    els.suggestionsList.append(row);
+  });
+}
+
+function onApplySelectedSuggestions() {
+  if (!lastSuggestions.length || !els.suggestionsList || !els.latestRoleDraft) {
+    return;
+  }
+
+  const selected = [];
+  const checkboxes = els.suggestionsList.querySelectorAll('input[type="checkbox"]');
+  checkboxes.forEach((box) => {
+    if (!box.checked) {
+      return;
+    }
+    const idx = Number(box.dataset.suggestionIndex);
+    if (Number.isInteger(idx) && lastSuggestions[idx]) {
+      selected.push(`- ${lastSuggestions[idx]}`);
+    }
+  });
+
+  if (!selected.length) {
+    setStatus("Select at least one truthful suggestion to apply.");
+    return;
+  }
+
+  const existing = sanitizeText(els.latestRoleDraft.value || "");
+  const block = `APPROVED TRUTHFUL SUGGESTIONS\n${selected.join("\n")}`;
+  els.latestRoleDraft.value = existing ? `${existing}\n\n${block}` : block;
+  setStatus("Applied selected suggestions to your editable draft. Keep only what is true.");
 }
 
 function onDownloadTxt() {
