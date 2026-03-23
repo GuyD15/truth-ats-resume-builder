@@ -8,6 +8,7 @@ const els = {
   jobUrl: document.getElementById("jobUrl"),
   jobTitle: document.getElementById("jobTitle"),
   jobPaste: document.getElementById("jobPaste"),
+  currentRoleUrl: document.getElementById("currentRoleUrl"),
   currentRoleListing: document.getElementById("currentRoleListing"),
   latestRoleDraft: document.getElementById("latestRoleDraft"),
   analyzeBtn: document.getElementById("analyzeBtn"),
@@ -346,25 +347,31 @@ async function getJobTargetText() {
 }
 
 async function getCurrentRoleListingText() {
+  const urlVal = (els.currentRoleUrl?.value || "").trim();
+  if (urlVal && looksLikeUrl(urlVal)) {
+    try {
+      const fetched = await fetchJobTextByUrl(urlVal);
+      if (fetched) return fetched;
+    } catch {
+      // fall through to pasted text
+    }
+  }
+
   const raw = (els.currentRoleListing?.value || "").trim();
-  if (!raw) {
-    return "";
+  if (!raw) return "";
+  if (looksLikeUrl(raw)) {
+    try {
+      return await fetchJobTextByUrl(raw);
+    } catch {
+      return "";
+    }
   }
-
-  if (!looksLikeUrl(raw)) {
-    return raw;
-  }
-
-  try {
-    return await fetchJobTextByUrl(raw);
-  } catch {
-    return "";
-  }
+  return raw;
 }
 
 async function fetchJobTextByUrl(url) {
   const normalized = normalizeUrl(url);
-  const readerUrl = `https://r.jina.ai/http://${normalized.replace(/^https?:\/\//i, "")}`;
+  const readerUrl = `https://r.jina.ai/${normalized}`;
 
   try {
     const readerRes = await fetch(readerUrl);
@@ -433,7 +440,7 @@ function looksLikeUrl(value) {
 
 function normalizeResumeStructure(text) {
   return text
-    .replace(/•/g, "\n• ")
+    .replace(/\u2022/g, "\n\u2022 ")
     .replace(/\b(PROFESSIONAL SUMMARY|SUMMARY|EXPERIENCE|WORK EXPERIENCE|EMPLOYMENT HISTORY|SKILLS|TECHNICAL SKILLS|CORE COMPETENCIES|EDUCATION|PROJECTS|CERTIFICATIONS)\b/gi, "\n$1\n")
     .replace(/\s+\|\s+/g, " | ")
     .replace(/\n{3,}/g, "\n\n")
@@ -766,8 +773,8 @@ function buildLatestRoleDraftTemplate(sections, currentRoleListing) {
 }
 
 function splitPotentialBullets(line) {
-  if (/^[\-*•]/.test(line)) {
-    return [line.replace(/^[\-*•]\s*/, "")];
+  if (/^[\-*\u2022]/.test(line)) {
+    return [line.replace(/^[\-*\u2022]\s*/, "")];
   }
 
   if (line.includes(";")) {

@@ -78,10 +78,16 @@
         </div>
 
         <div class="field-block">
-          <label for="currentRoleListing">Current Role Job Listing (optional, helps update your latest job section)</label>
+          <label for="currentRoleUrl">Current Role Job URL (optional)</label>
+          <input
+            id="currentRoleUrl"
+            type="url"
+            placeholder="https://company.com/jobs/your-current-role"
+          />
+          <label for="currentRoleListing" style="margin-top:0.6rem;display:block;">Or paste current role description manually</label>
           <textarea
             id="currentRoleListing"
-            rows="5"
+            rows="4"
             placeholder="Paste a job listing similar to what you currently do. The app will create latest-role update prompts without inventing facts."
           ></textarea>
         </div>
