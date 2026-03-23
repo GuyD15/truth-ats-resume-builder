@@ -33,6 +33,8 @@ const els = {
 let lastOutputText = "";
 let lastLatestRoleDraftTemplate = "";
 let lastSuggestions = [];
+let lastResumeKeywordSet = new Set();
+let lastFilteredJobKeywords = [];
 
 const WEAK_KEYWORDS = new Set([
   "through",
@@ -264,6 +266,9 @@ if (els.loadDraftBtn) {
 if (els.suggestionsList) {
   els.suggestionsList.addEventListener("click", onSuggestionListClick);
 }
+if (els.latestRoleDraft) {
+  els.latestRoleDraft.addEventListener("input", refreshAtsFromDraft);
+}
 els.downloadBtn.addEventListener("click", onDownloadTxt);
 els.downloadDocxBtn.addEventListener("click", onDownloadDocx);
 els.downloadPdfBtn.addEventListener("click", onDownloadPdf);
@@ -320,10 +325,13 @@ async function onAnalyze() {
     lastOutputText = result.tailoredText;
     lastLatestRoleDraftTemplate = result.latestRoleDraftTemplate || "";
     lastSuggestions = result.suggestions || [];
+    lastResumeKeywordSet = new Set(result.scoringModel?.baseResumeKeywords || []);
+    lastFilteredJobKeywords = result.scoringModel?.filteredJobKeywords || [];
     if (els.loadDraftBtn) {
       els.loadDraftBtn.disabled = !lastLatestRoleDraftTemplate;
     }
     renderSuggestions(lastSuggestions);
+    refreshAtsFromDraft();
     els.downloadBtn.disabled = false;
     els.downloadDocxBtn.disabled = false;
     els.downloadPdfBtn.disabled = false;
@@ -621,9 +629,6 @@ function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "",
   );
 
   const parts = [];
-  parts.push("TAILORED RESUME (TRUTH-FIRST)");
-  parts.push("This output only re-orders and reframes details found in your original resume.");
-  parts.push("");
 
   if (summaryText) {
     parts.push("PROFESSIONAL SUMMARY");
@@ -632,13 +637,13 @@ function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "",
   }
 
   if (skillsText) {
-    parts.push("TARGETED SKILLS");
+    parts.push("SKILLS");
     parts.push(skillsText);
     parts.push("");
   }
 
   if (experienceText) {
-    parts.push("EXPERIENCE HIGHLIGHTS");
+    parts.push("EXPERIENCE");
     parts.push(experienceText);
     parts.push("");
   }
@@ -661,22 +666,16 @@ function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "",
     parts.push("");
   }
 
-  if (latestRoleUpdateText) {
-    parts.push("LATEST ROLE UPDATE WORKBENCH (TRUTH-SAFE)");
-    parts.push(latestRoleUpdateText);
-    parts.push("");
-  }
-
-  parts.push("ATS ALIGNMENT");
-  parts.push(`Matched keywords: ${matchedKeywords.slice(0, 35).join(", ") || "none detected"}`);
-  parts.push(`Potential gaps to study: ${missingKeywords.slice(0, 35).join(", ") || "none"}`);
-
   return {
     score,
     matchedKeywords,
     missingKeywords: missingKeywords.slice(0, 20),
     latestRoleDraftTemplate,
     suggestions,
+    scoringModel: {
+      filteredJobKeywords,
+      baseResumeKeywords: [...resumeKeywordSet],
+    },
     tailoredText: parts.join("\n").trim(),
   };
 }
@@ -1255,7 +1254,29 @@ function onSuggestionListClick(event) {
 
   target.setAttribute("disabled", "true");
   target.textContent = "Added";
+  refreshAtsFromDraft();
   setStatus("Added 1 bullet to Latest Role Draft. Edit details so it stays truthful.");
+}
+
+function refreshAtsFromDraft() {
+  if (!lastFilteredJobKeywords.length || !lastResumeKeywordSet.size) {
+    return;
+  }
+
+  const draftText = sanitizeText(els.latestRoleDraft?.value || "");
+  const draftKeywords = extractKeywords(draftText, 180).map(normalizeToken);
+  const combinedKeywordSet = new Set(lastResumeKeywordSet);
+  for (const keyword of draftKeywords) {
+    combinedKeywordSet.add(keyword);
+  }
+
+  const matchedKeywords = lastFilteredJobKeywords.filter((word) => combinedKeywordSet.has(normalizeToken(word)));
+  const coreKeywords = lastFilteredJobKeywords.slice(0, Math.min(24, lastFilteredJobKeywords.length));
+  const coreMatchedCount = coreKeywords.filter((word) => combinedKeywordSet.has(normalizeToken(word))).length;
+  const score = coreKeywords.length ? Math.round((coreMatchedCount / coreKeywords.length) * 100) : 0;
+
+  els.scoreValue.textContent = `${score}%`;
+  els.matchCount.textContent = `${matchedKeywords.length}`;
 }
 
 function appendDraftBullet(draftText) {
@@ -1398,6 +1419,7 @@ function onLoadDraftTemplate() {
     return;
   }
   els.latestRoleDraft.value = lastLatestRoleDraftTemplate;
+  refreshAtsFromDraft();
   setStatus("Loaded suggested draft prompts for your latest role. Edit with real details only.");
 }
 
@@ -1411,7 +1433,17 @@ function composeExportText() {
     return lastOutputText;
   }
 
-  return `${lastOutputText}\n\nLATEST ROLE DRAFT (USER-EDITED, TRUTH-SAFE)\n${draft}`;
+  const cleanedDraftLines = draft
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^approved truthful draft bullets$/i.test(line));
+
+  if (!cleanedDraftLines.length) {
+    return lastOutputText;
+  }
+
+  return `${lastOutputText}\n\nADDITIONAL EXPERIENCE\n${cleanedDraftLines.join("\n")}`;
 }
 
 function setStatus(message) {
