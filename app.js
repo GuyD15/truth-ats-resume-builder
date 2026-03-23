@@ -204,8 +204,12 @@ for (const radio of document.querySelectorAll('input[name="jobMode"]')) {
 }
 
 els.analyzeBtn.addEventListener("click", onAnalyze);
-els.loadDraftBtn.addEventListener("click", onLoadDraftTemplate);
-els.applySuggestionsBtn.addEventListener("click", onApplySelectedSuggestions);
+if (els.loadDraftBtn) {
+  els.loadDraftBtn.addEventListener("click", onLoadDraftTemplate);
+}
+if (els.applySuggestionsBtn) {
+  els.applySuggestionsBtn.addEventListener("click", onApplySelectedSuggestions);
+}
 els.downloadBtn.addEventListener("click", onDownloadTxt);
 els.downloadDocxBtn.addEventListener("click", onDownloadDocx);
 els.downloadPdfBtn.addEventListener("click", onDownloadPdf);
@@ -259,9 +263,13 @@ async function onAnalyze() {
     lastOutputText = result.tailoredText;
     lastLatestRoleDraftTemplate = result.latestRoleDraftTemplate || "";
     lastSuggestions = result.suggestions || [];
-    els.loadDraftBtn.disabled = !lastLatestRoleDraftTemplate;
+    if (els.loadDraftBtn) {
+      els.loadDraftBtn.disabled = !lastLatestRoleDraftTemplate;
+    }
     renderSuggestions(lastSuggestions);
-    els.applySuggestionsBtn.disabled = !lastSuggestions.length;
+    if (els.applySuggestionsBtn) {
+      els.applySuggestionsBtn.disabled = !lastSuggestions.length;
+    }
     els.downloadBtn.disabled = false;
     els.downloadDocxBtn.disabled = false;
     els.downloadPdfBtn.disabled = false;
