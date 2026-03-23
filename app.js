@@ -31,6 +31,24 @@ let lastOutputText = "";
 let lastLatestRoleDraftTemplate = "";
 let lastSuggestions = [];
 
+const WEAK_KEYWORDS = new Set([
+  "through",
+  "trust",
+  "prove",
+  "many",
+  "successful",
+  "early",
+  "across",
+  "making",
+  "drive",
+  "vision",
+  "mission",
+  "within",
+  "now",
+  "book",
+  "businesses",
+]);
+
 const STOPWORDS = new Set([
   "a",
   "an",
@@ -536,10 +554,13 @@ function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "")
   const resumeKeywords = extractKeywords(normalizedResume, 260);
   const resumeKeywordSet = new Set(resumeKeywords.map(normalizeToken));
 
-  const matchedKeywords = jobKeywords.filter((word) => resumeKeywordSet.has(normalizeToken(word)));
-  const missingKeywords = jobKeywords.filter((word) => !resumeKeywordSet.has(normalizeToken(word)));
+  const blockedTerms = extractBlockedTerms(jobDetails);
+  const filteredJobKeywords = jobKeywords.filter((word) => isHighSignalKeyword(word, blockedTerms));
 
-  const coreKeywords = jobKeywords.slice(0, Math.min(24, jobKeywords.length));
+  const matchedKeywords = filteredJobKeywords.filter((word) => resumeKeywordSet.has(normalizeToken(word)));
+  const missingKeywords = filteredJobKeywords.filter((word) => !resumeKeywordSet.has(normalizeToken(word)));
+
+  const coreKeywords = filteredJobKeywords.slice(0, Math.min(24, filteredJobKeywords.length));
   const coreMatchedCount = coreKeywords.filter((word) => resumeKeywordSet.has(normalizeToken(word))).length;
 
   const score = coreKeywords.length
@@ -554,7 +575,13 @@ function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "")
   const projectsText = sections.projects?.join("\n") || "";
   const latestRoleUpdateText = buildLatestRoleUpdateSection(sections, currentRoleListing);
   const latestRoleDraftTemplate = buildLatestRoleDraftTemplate(sections, currentRoleListing);
-  const suggestions = buildTruthfulSuggestions(sections, matchedKeywords, missingKeywords);
+  const suggestions = buildTruthfulSuggestions(
+    sections,
+    matchedKeywords,
+    missingKeywords,
+    jobDetails,
+    currentRoleListing
+  );
 
   const parts = [];
   parts.push("TAILORED RESUME (TRUTH-FIRST)");
@@ -617,33 +644,122 @@ function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "")
   };
 }
 
-function buildTruthfulSuggestions(sections, matchedKeywords, missingKeywords) {
+function buildTruthfulSuggestions(sections, matchedKeywords, missingKeywords, jobDetails, currentRoleListing) {
   const suggestions = [];
-  const focusMissing = missingKeywords.slice(0, 6);
-  const focusMatched = matchedKeywords.slice(0, 4);
+  const blockedTerms = extractBlockedTerms(jobDetails);
+  const focusMissing = missingKeywords
+    .filter((word) => isHighSignalKeyword(word, blockedTerms))
+    .slice(0, 6);
 
-  for (const word of focusMissing) {
-    suggestions.push(
-      `If true for your work, add a bullet that explicitly includes "${word}" with action + tool + measurable outcome.`
-    );
+  const focusMatched = matchedKeywords
+    .filter((word) => isHighSignalKeyword(word, blockedTerms))
+    .slice(0, 4);
+
+  const listingKeywords = extractKeywords(currentRoleListing || "", 40)
+    .filter((word) => isHighSignalKeyword(word, blockedTerms));
+
+  const lineBank = [
+    ...(sections.experience || []).slice(0, 14),
+    ...(sections.skills || []).slice(0, 10),
+  ].join(" ").toLowerCase();
+
+  for (const keyword of focusMissing) {
+    const draft = buildDraftBulletForKeyword(keyword, listingKeywords, lineBank);
+    suggestions.push({
+      label: `Add a truthful bullet that targets "${keyword}".`,
+      draft,
+    });
   }
 
-  for (const word of focusMatched) {
-    suggestions.push(
-      `Strengthen an existing bullet containing "${word}" by adding scope (volume/timeframe) and an outcome metric.`
-    );
+  for (const keyword of focusMatched) {
+    suggestions.push({
+      label: `Strengthen existing "${keyword}" bullet with scope and measurable outcome.`,
+      draft: `- Used ${keyword} to [specific action] for [volume/timeframe], resulting in [truthful metric outcome].`,
+    });
   }
 
-  const exp = sections.experience || [];
-  const hasNumbers = exp.some((line) => /\d/.test(line));
-  if (!hasNumbers) {
-    suggestions.push("Add measurable outcomes where truthful (%, $, count, time saved) to improve ATS and recruiter scan quality.");
+  if (!/(crm|salesforce|zendesk|hubspot|dialer|ticket|qa|compliance|risk|audit)/i.test(lineBank)) {
+    suggestions.push({
+      label: "Add your real tools/platforms to improve ATS relevance.",
+      draft: "- Worked in [real tools/platforms] to [action], improving [truthful result].",
+    });
   }
 
-  suggestions.push("Use exact wording from the target role for skills you truly used (for example, keep both CRM and Salesforce if accurate).");
-  suggestions.push("Keep only true claims: reject any suggestion that does not match your real responsibilities.");
+  suggestions.push({
+    label: "Keep suggestions truth-safe.",
+    draft: "- Remove any drafted bullet that is not true in your actual role, then tighten remaining bullets with concrete numbers.",
+  });
 
-  return [...new Set(suggestions)].slice(0, 12);
+  const unique = [];
+  const seen = new Set();
+  for (const item of suggestions) {
+    const key = `${item.label}|${item.draft}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(item);
+  }
+
+  return unique.slice(0, 12);
+}
+
+function buildDraftBulletForKeyword(keyword, listingKeywords, lineBank) {
+  const k = String(keyword || "").toLowerCase();
+
+  if (/(security|compliance|risk|audit|privacy|regulatory)/.test(k)) {
+    return `- Supported ${keyword}-related workflows by [action], reducing [issue/risk] by [truthful metric] while maintaining customer experience.`;
+  }
+
+  if (/(retention|churn|customer|client|account|escalation)/.test(k)) {
+    return `- Managed [customer/account volume] and resolved [issue type], improving ${keyword} outcomes by [truthful metric].`;
+  }
+
+  if (/(training|coaching|mentor|qa|quality)/.test(k)) {
+    return `- Trained/coached [team size] on [process], increasing ${keyword} consistency and improving [truthful KPI].`;
+  }
+
+  if (/(analytics|reporting|kpi|metric|sql|data)/.test(k)) {
+    return `- Used [reporting/data workflow] to track ${keyword}, identify trend(s), and improve [truthful business result].`;
+  }
+
+  const roleSignal = listingKeywords.slice(0, 3).join(", ");
+  if (roleSignal) {
+    return `- Applied ${keyword} in ${roleSignal} workflows to [specific action], resulting in [truthful measurable impact].`;
+  }
+
+  return `- Applied ${keyword} to [specific action], resulting in [truthful measurable impact].`;
+}
+
+function isHighSignalKeyword(word, blockedTerms = new Set()) {
+  const w = String(word || "").toLowerCase().trim();
+  if (!w || w.length < 4) return false;
+  if (/^\d+$/.test(w)) return false;
+  if (WEAK_KEYWORDS.has(w)) return false;
+  if (blockedTerms.has(w)) return false;
+  if (/^[a-f0-9]{6,}$/.test(w)) return false;
+  return true;
+}
+
+function extractBlockedTerms(jobDetails) {
+  const blocked = new Set(["ashby", "greenhouse", "lever", "workday", "linkedin", "otta"]);
+  const source = String(jobDetails?.sourceLabel || "");
+
+  if (!looksLikeUrl(source)) {
+    return blocked;
+  }
+
+  try {
+    const url = new URL(normalizeUrl(source));
+    const raw = `${url.hostname} ${url.pathname}`.toLowerCase();
+    raw
+      .replace(/[^a-z0-9]+/g, " ")
+      .split(/\s+/)
+      .filter((part) => part.length > 2)
+      .forEach((part) => blocked.add(part));
+  } catch {
+    // ignore malformed URLs
+  }
+
+  return blocked;
 }
 
 function splitSections(text) {
@@ -916,7 +1032,7 @@ function renderSuggestions(suggestions) {
     return;
   }
 
-  suggestions.forEach((text, index) => {
+  suggestions.forEach((item, index) => {
     const row = document.createElement("label");
     row.className = "suggestion-item";
 
@@ -927,7 +1043,9 @@ function renderSuggestions(suggestions) {
 
     const content = document.createElement("p");
     content.className = "suggestion-text";
-    content.textContent = text;
+    const labelText = typeof item === "string" ? item : item.label;
+    const draftText = typeof item === "string" ? item : item.draft;
+    content.textContent = `${labelText}\nDraft: ${draftText}`;
 
     row.append(checkbox, content);
     els.suggestionsList.append(row);
@@ -939,27 +1057,49 @@ function onApplySelectedSuggestions() {
     return;
   }
 
-  const selected = [];
+  const selectedDrafts = [];
   const checkboxes = els.suggestionsList.querySelectorAll('input[type="checkbox"]');
   checkboxes.forEach((box) => {
     if (!box.checked) {
       return;
     }
     const idx = Number(box.dataset.suggestionIndex);
-    if (Number.isInteger(idx) && lastSuggestions[idx]) {
-      selected.push(`- ${lastSuggestions[idx]}`);
+    if (!Number.isInteger(idx) || !lastSuggestions[idx]) {
+      return;
+    }
+    const item = lastSuggestions[idx];
+    const draft = typeof item === "string" ? item : item.draft;
+    if (draft) {
+      selectedDrafts.push(draft.startsWith("-") ? draft : `- ${draft}`);
     }
   });
 
-  if (!selected.length) {
+  if (!selectedDrafts.length) {
     setStatus("Select at least one truthful suggestion to apply.");
     return;
   }
 
   const existing = sanitizeText(els.latestRoleDraft.value || "");
-  const block = `APPROVED TRUTHFUL SUGGESTIONS\n${selected.join("\n")}`;
-  els.latestRoleDraft.value = existing ? `${existing}\n\n${block}` : block;
-  setStatus("Applied selected suggestions to your editable draft. Keep only what is true.");
+
+  const existingLines = existing
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const existingSet = new Set(existingLines.map((line) => line.toLowerCase()));
+  const uniqueNew = selectedDrafts.filter((line) => !existingSet.has(line.toLowerCase()));
+
+  if (!uniqueNew.length) {
+    setStatus("Those selected suggestions are already in your draft.");
+    return;
+  }
+
+  const blockHeader = "APPROVED TRUTHFUL DRAFT BULLETS";
+  const hasHeader = existingLines.some((line) => line.toLowerCase() === blockHeader.toLowerCase());
+  const block = `${hasHeader ? "" : `${blockHeader}\n`}${uniqueNew.join("\n")}`.trim();
+
+  els.latestRoleDraft.value = existing ? `${existing}\n${block}` : block;
+  setStatus(`Applied ${uniqueNew.length} new draft bullet suggestion(s). Keep only what is true.`);
 }
 
 function onDownloadTxt() {
