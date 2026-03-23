@@ -22,3 +22,7 @@ Open `index.html` in any modern browser.
 ## Full-stack version
 
 A separate full-stack (React + Express) implementation exists in local workspace folders `client/` and `server/`.
+
+## Deployment notes
+
+GitHub Pages deploys from `.github/workflows/pages.yml` on pushes to `main`.
