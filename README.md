@@ -1,28 +1,60 @@
 # Truth ATS Resume Builder
 
-Static web app that tailors an uploaded resume to a target job while keeping content truthful.
+Full-stack ATS resume tailoring app with a truth-first constraint.
 
-## Live usage
+## Stack
 
-- Upload your current resume (`txt`, `md`, `pdf`, `docx`)
-- Add a target role by job URL or job title
-- Optionally paste a full job description for better ATS keyword matching
-- Download tailored output as TXT, DOCX, or PDF
+- Frontend: React + TypeScript + Vite (`client/`)
+- Backend: Express API (`server/`)
+- Exports: TXT, DOCX, PDF
 
-## Truth-first guardrails
+## Features
 
-- Reorders and highlights only existing resume facts
-- Does not invent employers, responsibilities, dates, or achievements
-- Lists missing keywords as learning gaps instead of fabricated claims
+- Upload current resume (`.txt`, `.md`, `.pdf`, `.docx`)
+- Provide target job by URL or job title
+- Optional full job description paste for better keyword alignment
+- Optional current-role job listing paste to generate latest-role update prompts
+- Tailored output that only reorganizes and highlights existing resume facts
+- ATS score + matched/missing keyword insights
+- One-click download as TXT, DOCX, and PDF
 
-## Local run (optional)
+## Truth-first safeguards
 
-Open `index.html` in any modern browser.
+- No invented companies, titles, dates, metrics, tools, or responsibilities
+- Missing keywords are shown as potential learning gaps only
+- Tailoring focuses on ranking and reframing existing resume bullets
 
-## Full-stack version
+## Run locally
 
-A separate full-stack (React + Express) implementation exists in local workspace folders `client/` and `server/`.
+Install dependencies (already done in this workspace):
 
-## Deployment notes
+```powershell
+cd "c:\Users\guywa\Resume builder"
+& "C:\Program Files\nodejs\npm.cmd" install
+& "C:\Program Files\nodejs\npm.cmd" --prefix client install
+& "C:\Program Files\nodejs\npm.cmd" --prefix server install
+```
 
-GitHub Pages deploys from `.github/workflows/pages.yml` on pushes to `main`.
+Start both frontend and backend:
+
+```powershell
+cd "c:\Users\guywa\Resume builder"
+& "C:\Program Files\nodejs\npm.cmd" run dev
+```
+
+Default URLs:
+
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:8787`
+
+## Build
+
+```powershell
+cd "c:\Users\guywa\Resume builder\client"
+& "C:\Program Files\nodejs\npm.cmd" run build
+```
+
+## Notes
+
+- Some job pages block scraping due to bot/CORS protections. If that happens, paste the job description manually.
+- If PowerShell blocks `npm`, use `npm.cmd` as shown above.

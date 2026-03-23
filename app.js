@@ -8,7 +8,10 @@ const els = {
   jobUrl: document.getElementById("jobUrl"),
   jobTitle: document.getElementById("jobTitle"),
   jobPaste: document.getElementById("jobPaste"),
+  currentRoleListing: document.getElementById("currentRoleListing"),
+  latestRoleDraft: document.getElementById("latestRoleDraft"),
   analyzeBtn: document.getElementById("analyzeBtn"),
+  loadDraftBtn: document.getElementById("loadDraftBtn"),
   downloadBtn: document.getElementById("downloadBtn"),
   downloadDocxBtn: document.getElementById("downloadDocxBtn"),
   downloadPdfBtn: document.getElementById("downloadPdfBtn"),
@@ -22,6 +25,7 @@ const els = {
 };
 
 let lastOutputText = "";
+let lastLatestRoleDraftTemplate = "";
 
 const STOPWORDS = new Set([
   "a",
@@ -61,7 +65,41 @@ const STOPWORDS = new Set([
   "preferred",
   "experience",
   "ability",
+  "warning",
+  "page",
+  "url",
+  "source",
+  "http",
+  "https",
+  "markdown",
+  "content",
+  "loaded",
+  "timeout",
+  "captcha",
+  "access",
+  "authorized",
+  "success",
+  "title",
+  "not",
+  "yet",
+  "fully",
+  "consider",
+  "explicitly",
+  "specify",
+  "requiring",
 ]);
+
+const SCRAPE_NOISE_PATTERNS = [
+  /captcha/i,
+  /access denied/i,
+  /please (enable|verify|confirm)/i,
+  /warning:/i,
+  /not yet fully loaded/i,
+  /cloudflare/i,
+  /bot/i,
+  /rate limit/i,
+  /forbidden/i,
+];
 
 const TITLE_KEYWORDS = {
   "software engineer": [
@@ -129,6 +167,7 @@ for (const radio of document.querySelectorAll('input[name="jobMode"]')) {
 }
 
 els.analyzeBtn.addEventListener("click", onAnalyze);
+els.loadDraftBtn.addEventListener("click", onLoadDraftTemplate);
 els.downloadBtn.addEventListener("click", onDownloadTxt);
 els.downloadDocxBtn.addEventListener("click", onDownloadDocx);
 els.downloadPdfBtn.addEventListener("click", onDownloadPdf);
@@ -163,10 +202,16 @@ async function onAnalyze() {
     }
 
     setStatus("Tailoring resume using only existing facts...");
-    const result = tailorResumeTruthfully(resumeText, jobDetails);
+    const result = tailorResumeTruthfully(
+      resumeText,
+      jobDetails,
+      (els.currentRoleListing?.value || "").trim()
+    );
 
     renderResult(result);
     lastOutputText = result.tailoredText;
+    lastLatestRoleDraftTemplate = result.latestRoleDraftTemplate || "";
+    els.loadDraftBtn.disabled = !lastLatestRoleDraftTemplate;
     els.downloadBtn.disabled = false;
     els.downloadDocxBtn.disabled = false;
     els.downloadPdfBtn.disabled = false;
@@ -234,13 +279,29 @@ async function getJobTargetText() {
     const url = (els.jobUrl.value || "").trim();
     if (url) {
       sourceLabel = url;
-      fetchedText = await fetchJobTextByUrl(url);
+      try {
+        fetchedText = await fetchJobTextByUrl(url);
+      } catch (error) {
+        if (!pasted) {
+          throw error;
+        }
+      }
     }
   } else {
     const title = (els.jobTitle.value || "").trim();
     if (title) {
       sourceLabel = title;
-      fetchedText = buildSyntheticTextFromTitle(title);
+      if (looksLikeUrl(title)) {
+        try {
+          fetchedText = await fetchJobTextByUrl(title);
+        } catch (error) {
+          if (!pasted) {
+            throw error;
+          }
+        }
+      } else {
+        fetchedText = buildSyntheticTextFromTitle(title);
+      }
     }
   }
 
@@ -252,10 +313,17 @@ async function fetchJobTextByUrl(url) {
   const normalized = normalizeUrl(url);
   const readerUrl = `https://r.jina.ai/http://${normalized.replace(/^https?:\/\//i, "")}`;
 
-  const readerRes = await fetch(readerUrl);
-  if (readerRes.ok) {
-    const readerText = await readerRes.text();
-    return sanitizeText(readerText);
+  try {
+    const readerRes = await fetch(readerUrl);
+    if (readerRes.ok) {
+      const readerText = await readerRes.text();
+      const cleanedReader = cleanFetchedJobText(sanitizeText(readerText));
+      if (!isLowSignalJobText(cleanedReader)) {
+        return cleanedReader;
+      }
+    }
+  } catch {
+    // Fall back to direct fetch.
   }
 
   const directRes = await fetch(normalized, { mode: "cors" });
@@ -269,7 +337,12 @@ async function fetchJobTextByUrl(url) {
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ");
 
-  return sanitizeText(cleaned);
+  const cleanedText = cleanFetchedJobText(sanitizeText(cleaned));
+  if (isLowSignalJobText(cleanedText)) {
+    throw new Error("Job page content appears blocked or low quality. Paste the job description text for accurate ATS scoring.");
+  }
+
+  return cleanedText;
 }
 
 function buildSyntheticTextFromTitle(title) {
@@ -301,7 +374,34 @@ function sanitizeText(text) {
     .trim();
 }
 
-function tailorResumeTruthfully(resumeText, jobDetails) {
+function looksLikeUrl(value) {
+  return /^https?:\/\//i.test(value) || /\.[a-z]{2,}(\/|$)/i.test(value);
+}
+
+function cleanFetchedJobText(text) {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !SCRAPE_NOISE_PATTERNS.some((pattern) => pattern.test(line)))
+    .join("\n")
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/\bwww\.\S+\b/gi, " ")
+    .replace(/[\t ]{2,}/g, " ")
+    .trim();
+}
+
+function isLowSignalJobText(text) {
+  if (!text || text.length < 250) {
+    return true;
+  }
+
+  const lines = text.split("\n").filter(Boolean);
+  const noisyLines = lines.filter((line) => SCRAPE_NOISE_PATTERNS.some((pattern) => pattern.test(line)));
+  return noisyLines.length >= Math.max(2, Math.floor(lines.length * 0.25));
+}
+
+function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "") {
   const normalizedResume = sanitizeText(resumeText);
   const sections = splitSections(normalizedResume);
 
@@ -322,6 +422,8 @@ function tailorResumeTruthfully(resumeText, jobDetails) {
   const educationText = sections.education?.join("\n") || "";
   const certText = sections.certifications?.join("\n") || "";
   const projectsText = sections.projects?.join("\n") || "";
+  const latestRoleUpdateText = buildLatestRoleUpdateSection(sections, currentRoleListing);
+  const latestRoleDraftTemplate = buildLatestRoleDraftTemplate(sections, currentRoleListing);
 
   const parts = [];
   parts.push("TAILORED RESUME (TRUTH-FIRST)");
@@ -364,6 +466,12 @@ function tailorResumeTruthfully(resumeText, jobDetails) {
     parts.push("");
   }
 
+  if (latestRoleUpdateText) {
+    parts.push("LATEST ROLE UPDATE WORKBENCH (TRUTH-SAFE)");
+    parts.push(latestRoleUpdateText);
+    parts.push("");
+  }
+
   parts.push("ATS ALIGNMENT");
   parts.push(`Matched keywords: ${matchedKeywords.slice(0, 35).join(", ") || "none detected"}`);
   parts.push(`Potential gaps to study: ${missingKeywords.slice(0, 35).join(", ") || "none"}`);
@@ -372,6 +480,7 @@ function tailorResumeTruthfully(resumeText, jobDetails) {
     score,
     matchedKeywords,
     missingKeywords: missingKeywords.slice(0, 20),
+    latestRoleDraftTemplate,
     tailoredText: parts.join("\n").trim(),
   };
 }
@@ -425,7 +534,11 @@ function extractKeywords(text, maxCount) {
     .replace(/[^a-z0-9+.#/\-\s]/g, " ")
     .split(/\s+/)
     .filter((word) => word.length > 2)
-    .filter((word) => !STOPWORDS.has(word));
+    .filter((word) => !STOPWORDS.has(word))
+    .filter((word) => word.length <= 28)
+    .filter((word) => !/[/:?&=]/.test(word))
+    .filter((word) => !/^\d+$/.test(word))
+    .filter((word) => !word.includes("utm_"));
 
   const frequencies = new Map();
   for (const word of wordList) {
@@ -488,6 +601,80 @@ function buildExperienceSection(sections, matchedKeywords) {
     .slice(0, 12)
     .map((item) => `- ${normalizeBullet(item.bullet)}`)
     .join("\n");
+}
+
+function buildLatestRoleUpdateSection(sections, currentRoleListing) {
+  const listing = sanitizeText(currentRoleListing || "");
+  if (!listing) {
+    return "";
+  }
+
+  const roleKeywords = extractKeywords(listing, 30);
+  if (!roleKeywords.length) {
+    return "";
+  }
+
+  const expLines = sections.experience || [];
+  if (!expLines.length) {
+    return "No experience section detected in your resume. Add your latest role title/company first, then use this workbench to add truthful bullets.";
+  }
+
+  const latestRoleAnchor = expLines.find((line) => /\|/.test(line) || /(present|current|remote|specialist|manager|representative)/i.test(line)) || expLines[0];
+  const latestRoleText = expLines.slice(0, 12).join(" ").toLowerCase();
+
+  const missingInLatestRole = roleKeywords
+    .filter((word) => !latestRoleText.includes(word))
+    .slice(0, 8);
+
+  const alreadyCovered = roleKeywords
+    .filter((word) => latestRoleText.includes(word))
+    .slice(0, 4);
+
+  const focusAreas = [...new Set([...alreadyCovered, ...missingInLatestRole])].slice(0, 8);
+
+  const lines = [];
+  lines.push(`Current role anchor: ${latestRoleAnchor}`);
+  lines.push("Use these prompts to update your latest role with details you actually performed:");
+
+  for (const focus of focusAreas) {
+    lines.push(`- Add a bullet about ${focus} with real actions, tools, and outcomes (include numbers only if true).`);
+  }
+
+  lines.push("- Keep each bullet in STAR style: action + context + measurable result.");
+  lines.push("- Remove any prompt that does not match your real experience.");
+  return lines.join("\n");
+}
+
+function buildLatestRoleDraftTemplate(sections, currentRoleListing) {
+  const listing = sanitizeText(currentRoleListing || "");
+  if (!listing) {
+    return "";
+  }
+
+  const roleKeywords = extractKeywords(listing, 24);
+  if (!roleKeywords.length) {
+    return "";
+  }
+
+  const expLines = sections.experience || [];
+  const latestRoleAnchor = expLines.find((line) => /\|/.test(line) || /(present|current|remote|specialist|manager|representative)/i.test(line)) || "[Your latest role title | company | dates]";
+  const latestRoleText = expLines.slice(0, 12).join(" ").toLowerCase();
+  const focusAreas = roleKeywords
+    .filter((word) => !latestRoleText.includes(word))
+    .slice(0, 6);
+
+  const promptAreas = focusAreas.length ? focusAreas : roleKeywords.slice(0, 6);
+
+  const lines = [];
+  lines.push(latestRoleAnchor);
+  lines.push("");
+  for (const area of promptAreas) {
+    lines.push(`- [Truthful draft] Used ${area} to [action], resulting in [real measurable outcome].`);
+  }
+  lines.push("- [Truthful draft] Collaborated with [team/stakeholder] to [action], improving [real result].");
+  lines.push("- [Truthful draft] Resolved [problem type] by [action], reducing [real impact metric].");
+
+  return lines.join("\n");
 }
 
 function splitPotentialBullets(line) {
@@ -555,11 +742,12 @@ function renderResult(result) {
 }
 
 function onDownloadTxt() {
-  if (!lastOutputText) {
+  const exportText = composeExportText();
+  if (!exportText) {
     return;
   }
 
-  const blob = new Blob([lastOutputText], { type: "text/plain;charset=utf-8" });
+  const blob = new Blob([exportText], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -571,7 +759,8 @@ function onDownloadTxt() {
 }
 
 function onDownloadDocx() {
-  if (!lastOutputText) {
+  const exportText = composeExportText();
+  if (!exportText) {
     return;
   }
 
@@ -580,13 +769,14 @@ function onDownloadDocx() {
     return;
   }
 
-  const html = textToSimpleHtml(lastOutputText);
+  const html = textToSimpleHtml(exportText);
   const docxBlob = window.htmlDocx.asBlob(html);
   downloadBlob(docxBlob, "tailored_resume_truth_first.docx");
 }
 
 function onDownloadPdf() {
-  if (!lastOutputText) {
+  const exportText = composeExportText();
+  if (!exportText) {
     return;
   }
 
@@ -606,7 +796,7 @@ function onDownloadPdf() {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
 
-  const lines = doc.splitTextToSize(lastOutputText, maxWidth);
+  const lines = doc.splitTextToSize(exportText, maxWidth);
   for (const line of lines) {
     if (y > doc.internal.pageSize.getHeight() - marginY) {
       doc.addPage();
@@ -660,6 +850,27 @@ function downloadBlob(blob, filename) {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+function onLoadDraftTemplate() {
+  if (!lastLatestRoleDraftTemplate || !els.latestRoleDraft) {
+    return;
+  }
+  els.latestRoleDraft.value = lastLatestRoleDraftTemplate;
+  setStatus("Loaded suggested draft prompts for your latest role. Edit with real details only.");
+}
+
+function composeExportText() {
+  if (!lastOutputText) {
+    return "";
+  }
+
+  const draft = sanitizeText(els.latestRoleDraft?.value || "");
+  if (!draft) {
+    return lastOutputText;
+  }
+
+  return `${lastOutputText}\n\nLATEST ROLE DRAFT (USER-EDITED, TRUTH-SAFE)\n${draft}`;
 }
 
 function setStatus(message) {

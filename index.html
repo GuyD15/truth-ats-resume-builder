@@ -77,6 +77,15 @@
           ></textarea>
         </div>
 
+        <div class="field-block">
+          <label for="currentRoleListing">Current Role Job Listing (optional, helps update your latest job section)</label>
+          <textarea
+            id="currentRoleListing"
+            rows="5"
+            placeholder="Paste a job listing similar to what you currently do. The app will create latest-role update prompts without inventing facts."
+          ></textarea>
+        </div>
+
         <div class="actions">
           <button id="analyzeBtn" class="btn btn-primary">Tailor Resume</button>
           <button id="downloadBtn" class="btn btn-secondary" disabled>Download Tailored TXT</button>
@@ -114,6 +123,19 @@
             <ul id="missingList" class="list"></ul>
           </article>
         </div>
+
+        <article class="result-card draft-card">
+          <h3>Latest Role Draft (Editable)</h3>
+          <p class="hint">Use this to draft bullets for your current role. Only add details you actually did.</p>
+          <textarea
+            id="latestRoleDraft"
+            rows="8"
+            placeholder="Write truthful bullets for your latest role here. Ex: Reduced churn by X% by improving retention call flow..."
+          ></textarea>
+          <div class="actions draft-actions">
+            <button id="loadDraftBtn" class="btn btn-secondary" disabled>Load Suggested Draft Prompts</button>
+          </div>
+        </article>
       </section>
     </main>
 
