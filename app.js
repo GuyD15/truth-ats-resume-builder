@@ -87,6 +87,39 @@ const STOPWORDS = new Set([
   "explicitly",
   "specify",
   "requiring",
+  "all",
+  "any",
+  "can",
+  "could",
+  "get",
+  "got",
+  "had",
+  "has",
+  "have",
+  "just",
+  "like",
+  "made",
+  "make",
+  "more",
+  "most",
+  "much",
+  "only",
+  "other",
+  "over",
+  "same",
+  "than",
+  "then",
+  "them",
+  "there",
+  "these",
+  "those",
+  "very",
+  "was",
+  "were",
+  "while",
+  "who",
+  "why",
+  "how",
 ]);
 
 const SCRAPE_NOISE_PATTERNS = [
@@ -201,11 +234,14 @@ async function onAnalyze() {
       throw new Error("Provide a job URL, job title, or pasted description.");
     }
 
+    setStatus("Reading current role listing context...");
+    const currentRoleListingText = await getCurrentRoleListingText();
+
     setStatus("Tailoring resume using only existing facts...");
     const result = tailorResumeTruthfully(
       resumeText,
       jobDetails,
-      (els.currentRoleListing?.value || "").trim()
+      currentRoleListingText
     );
 
     renderResult(result);
@@ -309,6 +345,23 @@ async function getJobTargetText() {
   return { mode, sourceLabel, fetchedText, pastedText: pasted, combinedText };
 }
 
+async function getCurrentRoleListingText() {
+  const raw = (els.currentRoleListing?.value || "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  if (!looksLikeUrl(raw)) {
+    return raw;
+  }
+
+  try {
+    return await fetchJobTextByUrl(raw);
+  } catch {
+    return "";
+  }
+}
+
 async function fetchJobTextByUrl(url) {
   const normalized = normalizeUrl(url);
   const readerUrl = `https://r.jina.ai/http://${normalized.replace(/^https?:\/\//i, "")}`;
@@ -378,6 +431,38 @@ function looksLikeUrl(value) {
   return /^https?:\/\//i.test(value) || /\.[a-z]{2,}(\/|$)/i.test(value);
 }
 
+function normalizeResumeStructure(text) {
+  return text
+    .replace(/•/g, "\n• ")
+    .replace(/\b(PROFESSIONAL SUMMARY|SUMMARY|EXPERIENCE|WORK EXPERIENCE|EMPLOYMENT HISTORY|SKILLS|TECHNICAL SKILLS|CORE COMPETENCIES|EDUCATION|PROJECTS|CERTIFICATIONS)\b/gi, "\n$1\n")
+    .replace(/\s+\|\s+/g, " | ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function normalizeToken(word) {
+  const w = String(word || "").toLowerCase().trim();
+  if (w.length <= 4) {
+    return w;
+  }
+  if (w.endsWith("ies") && w.length > 5) {
+    return `${w.slice(0, -3)}y`;
+  }
+  if (w.endsWith("ing") && w.length > 6) {
+    return w.slice(0, -3);
+  }
+  if (w.endsWith("ed") && w.length > 5) {
+    return w.slice(0, -2);
+  }
+  if (w.endsWith("es") && w.length > 5) {
+    return w.slice(0, -2);
+  }
+  if (w.endsWith("s") && w.length > 4) {
+    return w.slice(0, -1);
+  }
+  return w;
+}
+
 function cleanFetchedJobText(text) {
   return text
     .split("\n")
@@ -402,18 +487,21 @@ function isLowSignalJobText(text) {
 }
 
 function tailorResumeTruthfully(resumeText, jobDetails, currentRoleListing = "") {
-  const normalizedResume = sanitizeText(resumeText);
+  const normalizedResume = normalizeResumeStructure(sanitizeText(resumeText));
   const sections = splitSections(normalizedResume);
 
-  const jobKeywords = extractKeywords(jobDetails.combinedText, 80);
+  const jobKeywords = extractKeywords(jobDetails.combinedText, 40);
   const resumeKeywords = extractKeywords(normalizedResume, 260);
-  const resumeKeywordSet = new Set(resumeKeywords);
+  const resumeKeywordSet = new Set(resumeKeywords.map(normalizeToken));
 
-  const matchedKeywords = jobKeywords.filter((word) => resumeKeywordSet.has(word));
-  const missingKeywords = jobKeywords.filter((word) => !resumeKeywordSet.has(word));
+  const matchedKeywords = jobKeywords.filter((word) => resumeKeywordSet.has(normalizeToken(word)));
+  const missingKeywords = jobKeywords.filter((word) => !resumeKeywordSet.has(normalizeToken(word)));
 
-  const score = jobKeywords.length
-    ? Math.round((matchedKeywords.length / jobKeywords.length) * 100)
+  const coreKeywords = jobKeywords.slice(0, Math.min(24, jobKeywords.length));
+  const coreMatchedCount = coreKeywords.filter((word) => resumeKeywordSet.has(normalizeToken(word))).length;
+
+  const score = coreKeywords.length
+    ? Math.round((coreMatchedCount / coreKeywords.length) * 100)
     : 0;
 
   const summaryText = buildSummary(sections, matchedKeywords, jobDetails);
@@ -573,7 +661,7 @@ function buildSkillSection(sections, matchedKeywords) {
     .filter(Boolean);
 
   const selected = matchedKeywords
-    .filter((word) => explicitSkills.some((skill) => skill.toLowerCase().includes(word)))
+    .filter((word) => explicitSkills.some((skill) => skill.toLowerCase().includes(word) || normalizeToken(skill).includes(normalizeToken(word))))
     .slice(0, 18);
 
   const merged = [...new Set([...selected, ...explicitSkills.slice(0, 18)])];
@@ -698,7 +786,7 @@ function scoreBullet(bullet, matchedKeywords) {
   let score = 0;
 
   for (const keyword of matchedKeywords) {
-    if (lower.includes(keyword)) {
+    if (lower.includes(keyword) || lower.includes(normalizeToken(keyword))) {
       score += 3;
     }
   }
