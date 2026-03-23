@@ -707,13 +707,13 @@ function buildTruthfulSuggestions(
     ...(sections.skills || []).slice(0, 10),
   ].join(" ").toLowerCase();
 
-  const tenureText = currentRoleMeta.tenureText || "your current tenure";
+  const tenureText = currentRoleMeta.tenureText || "recent tenure";
   const inferredResponsibilities = inferResponsibilitiesFromRoleTitle(currentRoleMeta.roleTitle || "");
 
   for (const responsibility of inferredResponsibilities.slice(0, 4)) {
     suggestions.push({
       label: `Add responsibility-backed bullet (${currentRoleMeta.roleTitle || "current role"}).`,
-      draft: `- Over ${tenureText}, ${responsibility}, resulting in [truthful KPI change].`,
+      draft: `- Over ${tenureText}, ${responsibility}, improving service consistency and customer outcomes.`,
     });
   }
 
@@ -728,14 +728,14 @@ function buildTruthfulSuggestions(
   for (const keyword of focusMatched) {
     suggestions.push({
       label: `Strengthen existing "${keyword}" bullet with scope and measurable outcome.`,
-      draft: `- Used ${keyword} to [specific action] for [volume/timeframe], resulting in [truthful metric outcome].`,
+      draft: `- Used ${keyword} across daily workflows to improve completion speed, reduce repeat issues, and deliver more consistent results.`,
     });
   }
 
   if (!/(crm|salesforce|zendesk|hubspot|dialer|ticket|qa|compliance|risk|audit)/i.test(lineBank)) {
     suggestions.push({
       label: "Add your real tools/platforms to improve ATS relevance.",
-      draft: "- Worked in [real tools/platforms] to [action], improving [truthful result].",
+      draft: "- Documented work and follow-ups in role-specific tools, improving handoff quality and operational consistency.",
     });
   }
 
@@ -870,27 +870,27 @@ function buildDraftBulletForKeyword(keyword, listingKeywords, lineBank) {
   const k = String(keyword || "").toLowerCase();
 
   if (/(security|compliance|risk|audit|privacy|regulatory)/.test(k)) {
-    return `- Supported ${keyword}-related workflows by [action], reducing [issue/risk] by [truthful metric] while maintaining customer experience.`;
+    return `- Supported ${keyword}-related workflows by following policy controls, documenting exceptions, and reducing risk while maintaining customer experience.`;
   }
 
   if (/(retention|churn|customer|client|account|escalation)/.test(k)) {
-    return `- Managed [customer/account volume] and resolved [issue type], improving ${keyword} outcomes by [truthful metric].`;
+    return `- Managed customer accounts and resolved escalations quickly, improving ${keyword} outcomes through proactive follow-up and clear communication.`;
   }
 
   if (/(training|coaching|mentor|qa|quality)/.test(k)) {
-    return `- Trained/coached [team size] on [process], increasing ${keyword} consistency and improving [truthful KPI].`;
+    return `- Coached teammates on process and quality standards, increasing ${keyword} consistency and reducing repeat errors.`;
   }
 
   if (/(analytics|reporting|kpi|metric|sql|data)/.test(k)) {
-    return `- Used [reporting/data workflow] to track ${keyword}, identify trend(s), and improve [truthful business result].`;
+    return `- Used reporting and trend analysis to track ${keyword}, identify root causes, and improve operational outcomes.`;
   }
 
   const roleSignal = listingKeywords.slice(0, 3).join(", ");
   if (roleSignal) {
-    return `- Applied ${keyword} in ${roleSignal} workflows to [specific action], resulting in [truthful measurable impact].`;
+    return `- Applied ${keyword} in ${roleSignal} workflows to improve execution quality and deliver more consistent results.`;
   }
 
-  return `- Applied ${keyword} to [specific action], resulting in [truthful measurable impact].`;
+  return `- Applied ${keyword} in day-to-day execution to strengthen quality, speed, and consistency of outcomes.`;
 }
 
 function isHighSignalKeyword(word, blockedTerms = new Set()) {
@@ -1098,7 +1098,7 @@ function buildLatestRoleDraftTemplate(sections, currentRoleListing) {
   }
 
   const expLines = sections.experience || [];
-  const latestRoleAnchor = expLines.find((line) => /\|/.test(line) || /(present|current|remote|specialist|manager|representative)/i.test(line)) || "[Your latest role title | company | dates]";
+  const latestRoleAnchor = expLines.find((line) => /\|/.test(line) || /(present|current|remote|specialist|manager|representative)/i.test(line)) || "Most recent role | company | dates";
   const latestRoleText = expLines.slice(0, 12).join(" ").toLowerCase();
   const focusAreas = roleKeywords
     .filter((word) => !latestRoleText.includes(word))
@@ -1110,10 +1110,10 @@ function buildLatestRoleDraftTemplate(sections, currentRoleListing) {
   lines.push(latestRoleAnchor);
   lines.push("");
   for (const area of promptAreas) {
-    lines.push(`- [Truthful draft] Used ${area} to [action], resulting in [real measurable outcome].`);
+    lines.push(`- Used ${area} in daily execution to improve consistency, resolve issues faster, and support stronger customer outcomes.`);
   }
-  lines.push("- [Truthful draft] Collaborated with [team/stakeholder] to [action], improving [real result].");
-  lines.push("- [Truthful draft] Resolved [problem type] by [action], reducing [real impact metric].");
+  lines.push("- Collaborated with cross-functional partners to resolve complex cases quickly and improve customer satisfaction.");
+  lines.push("- Resolved escalated issues by identifying root causes and documenting fixes, reducing repeat contacts over time.");
 
   return lines.join("\n");
 }
